@@ -1,0 +1,5 @@
+
+在JSON.js文件内，包含JSON.parse.js和JSON.stringify.js的内容。
+
+http://www.json.org/js.html
+https://github.com/douglascrockford/JSON-js

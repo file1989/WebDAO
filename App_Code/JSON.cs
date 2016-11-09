@@ -79,7 +79,6 @@ public class JSON
         {
             sb.AppendFormat(",\"data\":{0}", ToJSON(data));
         }
-        sb.AppendFormat(",\"data\":{0}", success.ToString().ToLower());
         sb.Append("}");
         HttpContext.Current.Response.Write(sb.ToString());
     }
