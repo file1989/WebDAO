@@ -3,6 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Web;
 
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Drawing.Drawing2D;
+using System.IO;
+
 /// <summary>
 /// Common 的摘要说明
 /// </summary>
@@ -38,31 +43,28 @@ public class Common
         if (format == null || format == "") { format = "D"; }
         return Guid.NewGuid().ToString(format);
     }
-
     /// <summary>
     /// 时间戳转为C#格式时间
     /// </summary>
     /// <param name=”timeStamp”></param>
     /// <returns></returns>
-    public static DateTime GetTime(string timeStamp)
+    public static DateTime ToDateTime(string timeStamp)
     {
         DateTime dtStart = TimeZone.CurrentTimeZone.ToLocalTime(new DateTime(1970, 1, 1));
         long lTime = long.Parse(timeStamp + "0000000");
         TimeSpan toNow = new TimeSpan(lTime);
         return dtStart.Add(toNow);
     }
-
     /// <summary>
     /// DateTime时间格式转换为Unix时间戳格式
     /// </summary>
     /// <param name=”time”></param>
     /// <returns></returns>
-    public static int GetTimestamp(System.DateTime time)
+    public static int ToTimestamp(System.DateTime time)
     {
         System.DateTime startTime = TimeZone.CurrentTimeZone.ToLocalTime(new System.DateTime(1970, 1, 1));
         return (int)(time - startTime).TotalSeconds;
     }
-
     /// <summary>
     /// 获取用户IP地址
     /// </summary>
@@ -86,7 +88,6 @@ public class Common
         }
         return result;
     }
-
     /// <summary>
     /// 字典转为SqlParameter[]参数数组
     /// </summary>
@@ -102,19 +103,17 @@ public class Common
         }
         return sqlParams.ToArray();
     }
-
     /// <summary>
     /// MD5加密
     /// </summary>
     /// <param name="pws"></param>
     /// <returns></returns>
-    public static string MD5(string pws)
+    public static string MD5(string str)
     {
         System.Security.Cryptography.MD5CryptoServiceProvider md5 = new System.Security.Cryptography.MD5CryptoServiceProvider();
-        byte[] Encrypt = md5.ComputeHash(System.Text.Encoding.Unicode.GetBytes(pws));
+        byte[] Encrypt = md5.ComputeHash(System.Text.Encoding.Unicode.GetBytes(str));
         return BitConverter.ToString(Encrypt).Replace("-", "");
     }
-
     /// <summary>
     /// 获取错误信息的第一行
     /// </summary>
@@ -129,7 +128,6 @@ public class Common
         else
             return s;
     }
-
     /// <summary>
     /// 哈希加密
     /// </summary>
@@ -139,7 +137,6 @@ public class Common
     {
         return System.Web.Security.FormsAuthentication.HashPasswordForStoringInConfigFile(source, "SHA1");
     }
-
     /// <summary>
     /// 获取来自客户端的参数
     /// </summary>
@@ -167,5 +164,136 @@ public class Common
             return dic;
         else return null;
     }
-
+    /// <summary>
+    /// Base64字符串转图片
+    /// </summary>
+    /// <param name="base64String">图片的Base64字符串</param>
+    /// <returns></returns>
+    public static Image ToImage(string base64) {
+        try
+        {
+            using (System.IO.MemoryStream ms = new System.IO.MemoryStream(
+                    Convert.FromBase64String(base64)))
+            {
+                //return Image.FromStream(ms);
+                /*解决 GDI+ 中发生一般性错误。*/
+                return (Image)new Bitmap(Image.FromStream(ms));
+            }
+        }
+        catch (Exception ex) { throw new Exception(ex.Message); }
+    }
+    /// <summary>
+    /// 图片转Base64字符串
+    /// </summary>
+    /// <param name="Image"></param>
+    /// <returns></returns>
+    public static string ToBase64(Image Image) {
+        try
+        {
+            using (System.IO.MemoryStream stream = new System.IO.MemoryStream())
+            {
+                Image.Save(stream, ImageFormat.Jpeg);
+                return Convert.ToBase64String(stream.GetBuffer());
+            }
+        }
+        catch (Exception ex) { throw new Exception(ex.Message); }
+    }
+    /// <summary>
+    /// 无损压缩图片
+    /// </summary>
+    /// <param name="sFile">原图片</param>
+    /// <param name="dFile">压缩后保存位置</param>
+    /// <param name="Height">高度</param>
+    /// <param name="Width"></param>
+    /// <param name="flag">压缩质量 1-100</param>
+    /// <returns></returns>
+    public static bool ImageCompress(string sFile, string dFile, int Height, int Width, int flag)
+    {
+        try
+        {
+            System.Drawing.Image iSource = System.Drawing.Image.FromFile(sFile);
+            GetImageThumbnail(iSource, Height, Width, flag).Save(dFile);
+            return true;
+        }
+        catch { return false; }
+    }
+    /// <summary>
+    /// 获取缩略图
+    /// </summary>
+    /// <param name="image">原图片</param>
+    /// <param name="Height">高度</param>
+    /// <param name="Width">宽度</param>
+    /// <param name="flag">压缩质量 1-100</param>
+    /// <returns></returns>
+    public static Image GetImageThumbnail(Image image, int Height, int Width, int flag)
+    {
+        ImageFormat tFormat = image.RawFormat;
+        int sW = 0, sH = 0;
+        //按比例缩放
+        Size tem_size = new Size(image.Width, image.Height);
+        if (tem_size.Width > Height || tem_size.Width > Width) //将**改成c#中的或者操作符号
+        {
+            if ((tem_size.Width * Height) > (tem_size.Height * Width))
+            {
+                sW = Width;
+                sH = (Width * tem_size.Height) / tem_size.Width;
+            }
+            else
+            {
+                sH = Height;
+                sW = (tem_size.Width * Height) / tem_size.Height;
+            }
+        }
+        else
+        {
+            sW = tem_size.Width;
+            sH = tem_size.Height;
+        }
+        Bitmap ob = new Bitmap(Width, Height);
+        Graphics g = Graphics.FromImage(ob);
+        g.Clear(Color.WhiteSmoke);
+        g.CompositingQuality = CompositingQuality.HighQuality;
+        g.SmoothingMode = SmoothingMode.HighQuality;
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.DrawImage(image, new Rectangle((Width - sW) / 2, (Height - sH) / 2, sW, sH), 0, 0, image.Width, image.Height, GraphicsUnit.Pixel);
+        g.Dispose();
+        //以下代码为保存图片时，设置压缩质量
+        EncoderParameters ep = new EncoderParameters();
+        long[] qy = new long[1];
+        qy[0] = flag;//设置压缩的比例1-100
+        EncoderParameter eParam = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, qy);
+        ep.Param[0] = eParam;
+        try
+        {
+            ImageCodecInfo[] arrayICI = ImageCodecInfo.GetImageEncoders();
+            ImageCodecInfo jpegICIinfo = null;
+            for (int x = 0; x < arrayICI.Length; x++)
+            {
+                if (arrayICI[x].FormatDescription.Equals("JPEG"))
+                {
+                    jpegICIinfo = arrayICI[x];
+                    break;
+                }
+            }
+            MemoryStream ms = new MemoryStream();
+            if (jpegICIinfo != null)
+            {
+                ob.Save(ms, jpegICIinfo, ep);
+            }
+            else
+            {
+                ob.Save(ms, tFormat);
+            }
+            return (Image)new Bitmap(Image.FromStream(ms));/*解决 GDI+ 中发生一般性错误。*/
+        }
+        catch(Exception ex)
+        {
+            throw ex;
+        }
+        finally
+        {
+            image.Dispose();
+            ob.Dispose();
+        }
+    }
 }
