@@ -12,13 +12,10 @@ using System.Collections;
 /// </summary>
 public class SQLServerDAO
 {
-	public SQLServerDAO(){}
-
     /// <summary>
     /// 获取配置文件web.config的数据库连接字符串
     /// </summary>
     private static string ConnectionString = ConfigurationManager.ConnectionStrings["db"].ConnectionString;
-
     /// <summary>
     /// 存储过程可向执行调用的过程或应用程序返回一个整数值。
     /// </summary>
@@ -52,7 +49,7 @@ public class SQLServerDAO
     /// 建立数据库连接，并打开连接。
     /// </summary>
     /// <returns></returns>
-    public static SqlConnection getConnection()
+    public static SqlConnection GetConnection()
     {
         SqlConnection conn = new SqlConnection(ConnectionString);
         conn.Open();
@@ -65,88 +62,101 @@ public class SQLServerDAO
     /// <param name="parameter"></param>
     /// <param name="commandType"></param>
     /// <returns></returns>
-    public static SqlCommand createSqlCommand(string sql, Dictionary<string, object> parameter, CommandType commandType)
+    public static SqlCommand GetSqlCommand(string sql, object parameter, CommandType commandType)
     {
-        using (SqlCommand cmd = new SqlCommand(sql, getConnection()))
+        using (SqlCommand cmd = new SqlCommand(sql, GetConnection()))
         {
             cmd.CommandType = commandType;
             cmd.CommandTimeout = 60;
+            cmd.Parameters.Clear();
+            if (parameter is Dictionary<string, object>)
+            {
+                Dictionary<string, object> _parameter = (Dictionary<string, object>)parameter;
 
-            #region SQL语句的参数处理
+                #region SQL语句的参数处理
 
-            if (CommandType.Text == commandType)
-            { //SQL语句的参数处理。
+                if (CommandType.Text == commandType)
+                { //SQL语句的参数处理。
 
-                MatchCollection ms = Regex.Matches(sql, @"@\w+");
-                if (ms.Count > 0)
-                {
-                    foreach (Match m in ms)
+                    MatchCollection ms = Regex.Matches(sql, @"@\w+");
+                    if (ms.Count > 0)
                     {
-                        string key = m.Value;
-                        string key2 = m.Value.Substring(1);//去除 @
-                        Object value;
-                        if (parameter.ContainsKey(key2) || parameter.ContainsKey(key))
+                        foreach (Match m in ms)
                         {
-                            value = parameter.ContainsKey(key2) ? parameter[key2] : parameter[key];
+                            string key = m.Value;
+                            string key2 = m.Value.Substring(1);//去除 @
+                            Object value;
+                            if (_parameter.ContainsKey(key2) || _parameter.ContainsKey(key))
+                            {
+                                value = _parameter.ContainsKey(key2) ? _parameter[key2] : _parameter[key];
+                            }
+                            else
+                            {
+                                value = DBNull.Value;
+                            }
+                            cmd.Parameters.Add(new SqlParameter(key, value));
+                        }
+
+                    }
+                    cmd.CommandText = sql;
+                }
+                #endregion
+
+                #region 存储过程的参数处理
+
+                else if (CommandType.StoredProcedure == commandType)
+                {//存储过程的参数处理。
+
+                    List<Syscolumns> cols = CacheHelper.getStoredProcedureParameters(sql);
+                    if (cols == null)
+                    {
+                        throw new Exception("找不到存储过程 " + sql);
+                    }
+
+                    // 绑定input参数，并赋值
+                    if (parameter != null)
+                    {
+                        foreach (KeyValuePair<string, object> kv in _parameter)
+                        {
+                            Syscolumns col = CacheHelper.getColumn(sql, "P", "@" + kv.Key);
+                            if (col != null)
+                            {
+                                cmd.Parameters.Add(col.name, GetSqlDbType(col.type), col.length).Value = kv.Value;
+                                cols.Remove(col);
+                            }
+                        }
+
+                    }
+
+                    //处理未传参数的参数
+                    foreach (Syscolumns col in cols)
+                    {
+                        if (col.isoutparam)
+                        {
+                            // 绑定output参数，并赋值
+                            cmd.Parameters.Add(col.name, GetSqlDbType(col.type), col.length).Direction = ParameterDirection.Output;
                         }
                         else
                         {
-                            value = DBNull.Value;
-                        }
-                        cmd.Parameters.Add(new SqlParameter(key, value));
-                    }
-
-                }
-                cmd.CommandText = sql;
-            }
-            #endregion
-
-            #region 存储过程的参数处理
-
-            else if (CommandType.StoredProcedure == commandType)
-            {//存储过程的参数处理。
-
-                List<Syscolumns> cols = CacheHelper.getStoredProcedureParameters(sql);
-                if (cols == null)
-                {
-                    throw new Exception("找不到存储过程 " + sql);
-                }
-
-                // 绑定input参数，并赋值
-                if (parameter != null)
-                {
-                    foreach (KeyValuePair<string, object> kv in parameter)
-                    {
-                        Syscolumns col = CacheHelper.getColumn(sql, "P", "@" + kv.Key);
-                        if (col != null)
-                        {
-                            cmd.Parameters.Add(col.name, GetSqlDbType(col.type), col.length).Value = kv.Value;
-                            cols.Remove(col);
+                            //处理未传参数的参数
+                            cmd.Parameters.Add(col.name, GetSqlDbType(col.type), col.length).Value = DBNull.Value;
                         }
                     }
 
-                }
+                    // 绑定返回值
+                    cmd.Parameters.Add("ReturnValue", SqlDbType.Variant).Direction = ParameterDirection.ReturnValue;
 
-                //处理未传参数的参数
-                foreach (Syscolumns col in cols)
-                {
-                    if (col.isoutparam)
-                    {
-                        // 绑定output参数，并赋值
-                        cmd.Parameters.Add(col.name, GetSqlDbType(col.type), col.length).Direction = ParameterDirection.Output;
-                    }
-                    else
-                    {
-                        //处理未传参数的参数
-                        cmd.Parameters.Add(col.name, GetSqlDbType(col.type), col.length).Value = DBNull.Value;
-                    }
                 }
-
-                // 绑定返回值
-                cmd.Parameters.Add("ReturnValue", SqlDbType.Variant).Direction = ParameterDirection.ReturnValue;
+                #endregion
 
             }
-            #endregion
+            else if (parameter is SqlParameter[]) {
+                cmd.Parameters.AddRange((SqlParameter[])parameter);
+            }
+            else
+            {
+                throw new Exception("不支持的参数类型。");
+            }
 
             return cmd;
         }
@@ -233,7 +243,7 @@ public class SQLServerDAO
         DataTable dt = new DataTable();
         try
         {
-            SqlDataAdapter sda = new SqlDataAdapter(createSqlCommand(sql, parameter, cmdType));
+            SqlDataAdapter sda = new SqlDataAdapter(GetSqlCommand(sql, parameter, cmdType));
             sda.Fill(dt);
             sda.Dispose();
             return dt;
@@ -260,7 +270,7 @@ public class SQLServerDAO
         DataSet ds = new DataSet();
         try
         {
-            SqlDataAdapter sda = new SqlDataAdapter(createSqlCommand(sql, parameter, cmdType));
+            SqlDataAdapter sda = new SqlDataAdapter(GetSqlCommand(sql, parameter, cmdType));
             sda.Fill(ds);
             sda.Dispose();
             return ds;
@@ -283,7 +293,7 @@ public class SQLServerDAO
         {
             DataSet ds = new DataSet();
             List<DataTable> dataTables = new List<DataTable>();
-            SqlCommand cmd = createSqlCommand(StoredProcedureName, parameter, CommandType.StoredProcedure);
+            SqlCommand cmd = GetSqlCommand(StoredProcedureName, parameter, CommandType.StoredProcedure);
             SqlDataAdapter sda = new SqlDataAdapter(cmd);
             sda.Fill(ds);
             sda.Dispose();
@@ -315,7 +325,7 @@ public class SQLServerDAO
         try
         {
             List<DataTable> dataTables = new List<DataTable>();
-            SqlDataAdapter sda = new SqlDataAdapter(createSqlCommand(StoredProcedureName, parameter, CommandType.StoredProcedure));
+            SqlDataAdapter sda = new SqlDataAdapter(GetSqlCommand(StoredProcedureName, parameter, CommandType.StoredProcedure));
             sda.Fill(ds);
             sda.Dispose();
 
@@ -338,7 +348,7 @@ public class SQLServerDAO
     /// <returns></returns>
     public static Object ExecuteScalar(string sql, Dictionary<string, object> parameter, CommandType cmdType)
     {
-        return createSqlCommand(sql, parameter, cmdType).ExecuteScalar();
+        return GetSqlCommand(sql, parameter, cmdType).ExecuteScalar();
     }
 
     /// <summary>
@@ -349,7 +359,7 @@ public class SQLServerDAO
     /// <returns></returns>
     public static int ExecuteNonQuery(string sql, Dictionary<string, object> parameter)
     {
-        return createSqlCommand(sql, parameter, CommandType.Text).ExecuteNonQuery();
+        return GetSqlCommand(sql, parameter, CommandType.Text).ExecuteNonQuery();
     }
 
 
@@ -394,7 +404,6 @@ public class SQLServerDAO
         }
         als.Add(h);
         //表数据
-
         foreach (DataRow dr in dt.Rows)
         {
             ArrayList al = new ArrayList();
@@ -446,17 +455,6 @@ public class SQLServerDAO
     #endregion
 
 
-
-
-
-
-
-
-
-
-
-
-
 }
 #region 存储过程的返回值和Output参数信息类
 /// <summary>
@@ -475,16 +473,3 @@ public class SqlReturnData
     public Dictionary<string, object> OutParameters { set { OutParameters = value; } get { return OutParameters; } }
 }
 #endregion
-
-public class SQLServerStoredProcedureParameter {
-    public string name;
-    public string type;
-    public int? length;
-    public bool isoutparam;
-    public bool isnullable;
-}
-
-
-
-
-
