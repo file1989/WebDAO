@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>MySql.Fabric.Plugin</name>
+    </assembly>
+    <members>
+        <member name="T:MySql.Fabric.Properties.Resources">
+            <summary>
+              A strongly-typed resource class, for looking up localized strings, etc.
+            </summary>
+        </member>
+        <member name="P:MySql.Fabric.Properties.Resources.ResourceManager">
+            <summary>
+              Returns the cached ResourceManager instance used by this class.
+            </summary>
+        </member>
+        <member name="P:MySql.Fabric.Properties.Resources.Culture">
+            <summary>
+              Overrides the current thread's CurrentUICulture property for all
+              resource lookups using this strongly typed resource class.
+            </summary>
+        </member>
+        <member name="P:MySql.Fabric.Properties.Resources.errorConnectFabricServer">
+            <summary>
+              Looks up a localized string similar to Unable to connect to Fabric server..
+            </summary>
+        </member>
+        <member name="P:MySql.Fabric.Properties.Resources.errorFabricUuidChanged">
+            <summary>
+              Looks up a localized string similar to Fabric Instance UUID has changed..
+            </summary>
+        </member>
+        <member name="P:MySql.Fabric.Properties.Resources.errorGroupAndTable">
+            <summary>
+              Looks up a localized string similar to You have set a group name and a sharding table at the same time. Please set only one..
+            </summary>
+        </member>
+        <member name="P:MySql.Fabric.Properties.Resources.errorGroupNotFound">
+            <summary>
+              Looks up a localized string similar to Group &apos;{0}&apos; not found..
+            </summary>
+        </member>
+        <member name="P:MySql.Fabric.Properties.Resources.errorNoFabricSettings">
+            <summary>
+              Looks up a localized string similar to No Fabric settins found..
+            </summary>
+        </member>
+        <member name="P:MySql.Fabric.Properties.Resources.errorNotGroupNorTable">
+            <summary>
+              Looks up a localized string similar to Missing group or tables/key properties..
+            </summary>
+        </member>
+    </members>
+</doc>
