@@ -63,7 +63,7 @@ public class StoredProcedureParameter
 /// </summary>
 public class ParameterFactory
 {
-    private static Dictionary<string, List<StoredProcedureParameter>> StoredProcedureParameterPool = new Dictionary<string, List<StoredProcedureParameter>>();
+    private static Dictionary<string, Dictionary<string,StoredProcedureParameter>> StoredProcedureParameterPool = new Dictionary<string, Dictionary<string,StoredProcedureParameter>>();
     /// <summary>
     /// 写参数记录到文件
     /// </summary>
@@ -117,7 +117,7 @@ public class ParameterFactory
     /// </summary>
     /// <param name="ProcedureName">存储过程名称</param>
     /// <returns></returns>
-    public static List<StoredProcedureParameter> Get(string ProcedureName)
+    public static Dictionary<string, StoredProcedureParameter> Get(string ProcedureName)
     {
         if (StoredProcedureParameterPool.ContainsKey(ProcedureName))
             {
@@ -135,11 +135,9 @@ public class ParameterFactory
     {
         if (StoredProcedureParameterPool.ContainsKey(ProcedureName))
         {
-            List<StoredProcedureParameter> ParameterList = StoredProcedureParameterPool[ProcedureName];
-            foreach (StoredProcedureParameter spp in ParameterList.ToArray()) {
-                if (spp.name == ParameterName) {
-                    return spp;
-                }
+            Dictionary<string, StoredProcedureParameter> ParameterDictionary = StoredProcedureParameterPool[ProcedureName];
+            if (ParameterDictionary.ContainsKey(ParameterName)) {
+                return ParameterDictionary[ParameterName];
             }
             return null; 
         }
@@ -151,15 +149,15 @@ public class ParameterFactory
     /// <param name="ProcedureName">存储过程名称</param>
     /// <param name="ParameterList">参数</param>
     /// <returns></returns>
-    public static bool Set(string ProcedureName, List<StoredProcedureParameter> ParameterList)
+    public static bool Set(string ProcedureName, Dictionary<string, StoredProcedureParameter> ParameterDictionary)
     {
         if (StoredProcedureParameterPool.ContainsKey(ProcedureName))
         {
-            StoredProcedureParameterPool[ProcedureName] = ParameterList;
+            StoredProcedureParameterPool[ProcedureName] = ParameterDictionary;
         }
         else
         {
-            StoredProcedureParameterPool.Add(ProcedureName, ParameterList);
+            StoredProcedureParameterPool.Add(ProcedureName, ParameterDictionary);
         }
         return StoredProcedureParameterPool[ProcedureName] != null;
     }
@@ -173,28 +171,18 @@ public class ParameterFactory
     public static bool Set(string ProcedureName, string ParameterName, StoredProcedureParameter Parameter)
     {
         if (HasParameter(ProcedureName, ParameterName)) {
-            StoredProcedureParameter[] pars = StoredProcedureParameterPool[ProcedureName].ToArray();
-            for (int n = 0; n < pars.Length; n++) {
-                if (pars[n].name == ParameterName) {
-                    pars[n] = Parameter;
-                    break;
-                }
-            }
-            StoredProcedureParameterPool[ProcedureName].Clear();
-            StoredProcedureParameterPool[ProcedureName].AddRange(pars);
-
+            StoredProcedureParameterPool[ProcedureName][ParameterName] = Parameter;
         }
         else if (HasParameter(ProcedureName))
         {
-            StoredProcedureParameterPool[ProcedureName].Add(Parameter);
+            StoredProcedureParameterPool[ProcedureName].Add(ParameterName, Parameter);
         }
         else
         { //不存在 存储过程ProcedureName 的参数
-            List<StoredProcedureParameter> ParameterList = new List<StoredProcedureParameter>();
-            ParameterList.Add(Parameter);
-            StoredProcedureParameterPool.Add(ProcedureName,ParameterList);
+            Dictionary<string, StoredProcedureParameter> ParameterDictionary = new Dictionary<string, StoredProcedureParameter>();
+            ParameterDictionary.Add(ParameterName,Parameter);
+            StoredProcedureParameterPool.Add(ProcedureName, ParameterDictionary);
         }
-
         return Get(ProcedureName,ParameterName) != null;
     }
     /// <summary>
@@ -214,17 +202,10 @@ public class ParameterFactory
     /// <returns></returns>
     public static bool HasParameter(string ProcedureName, string ParameterName)
     {
-        bool res = false;
         if (StoredProcedureParameterPool.ContainsKey(ProcedureName)) {
-            List<StoredProcedureParameter> list = StoredProcedureParameterPool[ProcedureName];
-            foreach (StoredProcedureParameter spp in list.ToArray()) {
-                if (spp.name == ParameterName) {
-                    res= true;
-                    break;
-                }
-            }
+            return StoredProcedureParameterPool[ProcedureName].ContainsKey(ParameterName);
         } 
-        return res;
+        return false;
     }
     /// <summary>
     /// 从数据库获取存储过程参数
@@ -232,7 +213,7 @@ public class ParameterFactory
     /// <param name="Connection"></param>
     /// <param name="ProcedureName"></param>
     /// <returns></returns>
-    private static List<StoredProcedureParameter> GetSQLServerParameter(SqlConnection Connection, string ProcedureName)
+    private static Dictionary<string, StoredProcedureParameter> GetSQLServerParameter(SqlConnection Connection, string ProcedureName)
     {
         try
         {
@@ -250,7 +231,8 @@ public class ParameterFactory
             sda.Dispose();
             cmd.Connection.Close();
             cmd.Dispose();
-            List<StoredProcedureParameter> res = new List<StoredProcedureParameter>();
+            
+            Dictionary<string, StoredProcedureParameter> ParameterDictionary = new Dictionary<string, StoredProcedureParameter>();
             foreach (DataRow dr in dt.Rows)
             {
                 StoredProcedureParameter spp = new StoredProcedureParameter();
@@ -259,12 +241,13 @@ public class ParameterFactory
                 spp.length = Convert.ToInt32(dr["length"]);
                 spp.isoutparam = dr["isoutparam"].ToString() == "1";
                 spp.isnullable = dr["isnullable"].ToString() == "1";
-                res.Add(spp);
+                ParameterDictionary.Add(spp.name, spp);
 
             }
-            if (res.Count > 0) {
-                Set(ProcedureName, res);
-                return res; 
+            if (ParameterDictionary.Count > 0)
+            {
+                Set(ProcedureName, ParameterDictionary);
+                return ParameterDictionary; 
             } else { return null; }
         }
         catch { return null; }
@@ -344,14 +327,14 @@ public class ParameterFactory
     /// <returns></returns>
     public static SqlParameter[] GetSQLServerParameters(SqlConnection Connection, string ProcedureName, Dictionary<string, object> parameter)
     {
-        List<StoredProcedureParameter> ParameterList = Get(ProcedureName);
+        Dictionary<string, StoredProcedureParameter> ParameterList = Get(ProcedureName);
         if (ParameterList.Count == 0) { 
             ParameterList = GetSQLServerParameter(Connection, ProcedureName);
         }
         List<SqlParameter> res = new List<SqlParameter>();
-        
-        foreach (StoredProcedureParameter spp in ParameterList.ToArray()) {
+        foreach (KeyValuePair<string, StoredProcedureParameter> kvp in ParameterList){
             SqlParameter p = new SqlParameter();
+            StoredProcedureParameter spp = kvp.Value;
             if (spp.isoutparam) { //输出参数
                 // 绑定output参数，并赋值
                 p.ParameterName = spp.name;
@@ -368,6 +351,7 @@ public class ParameterFactory
                 if (parameter.ContainsKey(spp.name.Substring(1)))
                 {
                     p.Value = parameter[spp.name.Substring(1)];
+                    parameter.Remove(spp.name.Substring(1));
                 }
                 else
                 {   //处理未传参数的参数
@@ -376,16 +360,15 @@ public class ParameterFactory
             }
             res.Add(p);
         }
-
         // 从传入参数方向，判断是否还有参数未绑定
-        foreach (KeyValuePair<string, object> kv in parameter)
+        if (parameter.Count > 0)
         {
-            foreach (SqlParameter sp in res.ToArray())
+            GetSQLServerParameter(Connection, ProcedureName);
+            foreach (KeyValuePair<string, object> kv in parameter)
             {
-                if (sp.ParameterName != "@" + kv.Key)
+                StoredProcedureParameter spp2 = Get(ProcedureName, "@"+kv.Key);
+                if (spp2 !=null)
                 {
-                    GetSQLServerParameter(Connection, ProcedureName);
-                    StoredProcedureParameter spp2 = Get(ProcedureName, sp.ParameterName);
                     SqlParameter p = new SqlParameter();
                     // 绑定input参数，并赋值
                     p.ParameterName = spp2.name;
@@ -393,7 +376,7 @@ public class ParameterFactory
                     p.Size = spp2.length;
                     p.Value = kv.Value;
                     p.Direction = ParameterDirection.Input;
-                    break;
+                    res.Add(p);
                 }
             }
         }
