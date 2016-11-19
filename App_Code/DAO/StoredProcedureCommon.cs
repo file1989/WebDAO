@@ -1,20 +1,21 @@
-﻿using System;
+﻿
+/*
+ * 存储过程 执行结果及参数的处理
+ */
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Web;
-
 using System.IO;
-
 using System.Data;
 using System.Data.SqlClient;
 
-
 /// <summary>
-/// 存储过程的返回值和Output参数信息类
+/// 数据库执行返回值。包括存储过程的返回值和Output参数信息。
 /// </summary>
 public class ReturnData<T>
 {
-    public ReturnData() { }
     /// <summary>
     /// 设置或获取存储过程可向执行调用的过程或应用程序返回的一个整数值。
     /// </summary>
@@ -24,7 +25,7 @@ public class ReturnData<T>
     /// </summary>
     public Dictionary<string, object> OutParameters;
     /// <summary>
-    /// 数据（集）。如DataTable、DataSet、SqlDataReader 等。
+    /// 数据（集）。如DataTable、DataSet、SqlDataReader、int 等。
     /// </summary>
     public T Data;
     
@@ -63,6 +64,10 @@ public class StoredProcedureParameter
 /// </summary>
 public class ParameterFactory
 {
+    #region 参数工厂本身的变量和方法
+    /// <summary>
+    /// 参数池
+    /// </summary>
     private static Dictionary<string, Dictionary<string,StoredProcedureParameter>> StoredProcedureParameterPool = new Dictionary<string, Dictionary<string,StoredProcedureParameter>>();
     /// <summary>
     /// 写参数记录到文件
@@ -207,13 +212,17 @@ public class ParameterFactory
         } 
         return false;
     }
+
+    #endregion
+
+    #region SQLServerParameter
+
     /// <summary>
     /// 从数据库获取存储过程参数
     /// </summary>
-    /// <param name="Connection"></param>
     /// <param name="ProcedureName"></param>
     /// <returns></returns>
-    private static Dictionary<string, StoredProcedureParameter> GetSQLServerParameter(SqlConnection Connection, string ProcedureName)
+    private static Dictionary<string, StoredProcedureParameter> GetSQLServerParameter(string ProcedureName)
     {
         try
         {
@@ -222,33 +231,28 @@ public class ParameterFactory
                     syscolumns AS B ON A.id = B.id AND A.xtype = 'P' INNER JOIN
                     systypes C ON B.xtype = C.xtype AND C.[name] <> 'sysname'
                     where A.name='" + ProcedureName + "'ORDER BY A.name, B.isoutparam";
-            SqlCommand cmd = new SqlCommand(sql, Connection);
-            cmd.CommandType = CommandType.Text;
-            cmd.CommandTimeout = 60;
-            DataTable dt = new DataTable();
-            SqlDataAdapter sda = new SqlDataAdapter(cmd);
-            sda.Fill(dt);
-            sda.Dispose();
-            cmd.Connection.Close();
-            cmd.Dispose();
-            
-            Dictionary<string, StoredProcedureParameter> ParameterDictionary = new Dictionary<string, StoredProcedureParameter>();
-            foreach (DataRow dr in dt.Rows)
-            {
-                StoredProcedureParameter spp = new StoredProcedureParameter();
-                spp.name = dr["name"].ToString();
-                spp.type = dr["type"].ToString();
-                spp.length = Convert.ToInt32(dr["length"]);
-                spp.isoutparam = dr["isoutparam"].ToString() == "1";
-                spp.isnullable = dr["isnullable"].ToString() == "1";
-                ParameterDictionary.Add(spp.name, spp);
 
-            }
-            if (ParameterDictionary.Count > 0)
+            using (DataTable dt = SQLServerDAO.ExecuteDataTable(sql, null, CommandType.Text).Data)
             {
-                Set(ProcedureName, ParameterDictionary);
-                return ParameterDictionary; 
-            } else { return null; }
+                Dictionary<string, StoredProcedureParameter> ParameterDictionary = new Dictionary<string, StoredProcedureParameter>();
+                foreach (DataRow dr in dt.Rows)
+                {
+                    StoredProcedureParameter spp = new StoredProcedureParameter();
+                    spp.name = dr["name"].ToString();
+                    spp.type = dr["type"].ToString();
+                    spp.length = Convert.ToInt32(dr["length"]);
+                    spp.isoutparam = dr["isoutparam"].ToString() == "1";
+                    spp.isnullable = dr["isnullable"].ToString() == "1";
+                    ParameterDictionary.Add(spp.name, spp);
+
+                }
+                if (ParameterDictionary.Count > 0)
+                {
+                    Set(ProcedureName, ParameterDictionary);
+                    return ParameterDictionary;
+                }
+                else { return null; }
+            }
         }
         catch { return null; }
 
@@ -321,18 +325,46 @@ public class ParameterFactory
     /// <summary>
     /// 从数据库获取存储过程参数
     /// </summary>
-    /// <param name="Connection"></param>
     /// <param name="ProcedureName"></param>
     /// <param name="parameter"></param>
     /// <returns></returns>
-    public static SqlParameter[] GetSQLServerParameters(SqlConnection Connection, string ProcedureName, Dictionary<string, object> parameter)
+    public static SqlParameter[] GetSQLServerParameters(string ProcedureName, Dictionary<string, object> parameter)
     {
-        Dictionary<string, StoredProcedureParameter> ParameterList = Get(ProcedureName);
-        if (ParameterList.Count == 0) { 
-            ParameterList = GetSQLServerParameter(Connection, ProcedureName);
-        }
         List<SqlParameter> res = new List<SqlParameter>();
-        foreach (KeyValuePair<string, StoredProcedureParameter> kvp in ParameterList){
+        //记录已经绑定的参数
+        Dictionary<string, StoredProcedureParameter> AddedParameterRecord = new Dictionary<string, StoredProcedureParameter>();
+        // 绑定input参数
+        foreach (KeyValuePair<string, object> kv in parameter)
+        {
+            string key = (kv.Key.StartsWith("@") ? kv.Key : "@" + kv.Key);//支持参数名带不带 @ 。
+            StoredProcedureParameter spp2 = Get(ProcedureName, key);
+            /*
+             *参数值为空，刷新参数池后，再赋值。
+             */
+            if (spp2 == null) {
+                Dictionary<string, StoredProcedureParameter> _Parameters = GetSQLServerParameter(ProcedureName);
+                if (_Parameters.ContainsKey(key) && _Parameters[key]!=null)
+                {
+                    spp2=_Parameters[key];
+                }else{ continue; }
+            }
+
+            SqlParameter p = new SqlParameter();
+            p.ParameterName = spp2.name;
+            p.SqlDbType = GetSqlDbType(spp2.type);
+            p.Size = spp2.length;
+            p.Value = kv.Value;
+            p.Direction = ParameterDirection.Input;
+            res.Add(p);
+
+            //记录已绑定
+            AddedParameterRecord.Add(spp2.name, spp2);
+
+        }
+
+        //绑定output参数及处理未传参数的input参数
+        foreach (KeyValuePair<string, StoredProcedureParameter> kvp in Get(ProcedureName))
+        {
             SqlParameter p = new SqlParameter();
             StoredProcedureParameter spp = kvp.Value;
             if (spp.isoutparam) { //输出参数
@@ -342,43 +374,17 @@ public class ParameterFactory
                 p.Size = spp.length;
                 p.Direction = ParameterDirection.Output;
 
-            } else {
-                // 绑定input参数，并赋值
+            } else if (!AddedParameterRecord.ContainsKey(spp.name))
+            {
+                // 处理未传参数的input参数
                 p.ParameterName = spp.name;
                 p.SqlDbType = GetSqlDbType(spp.type);
                 p.Size = spp.length;
                 p.Direction = ParameterDirection.Input;
-                if (parameter.ContainsKey(spp.name.Substring(1)))
-                {
-                    p.Value = parameter[spp.name.Substring(1)];
-                    parameter.Remove(spp.name.Substring(1));
-                }
-                else
-                {   //处理未传参数的参数
-                    p.Value = DBNull.Value;
-                }
+                p.Value = DBNull.Value;
+                
             }
             res.Add(p);
-        }
-        // 从传入参数方向，判断是否还有参数未绑定
-        if (parameter.Count > 0)
-        {
-            GetSQLServerParameter(Connection, ProcedureName);
-            foreach (KeyValuePair<string, object> kv in parameter)
-            {
-                StoredProcedureParameter spp2 = Get(ProcedureName, "@"+kv.Key);
-                if (spp2 !=null)
-                {
-                    SqlParameter p = new SqlParameter();
-                    // 绑定input参数，并赋值
-                    p.ParameterName = spp2.name;
-                    p.SqlDbType = GetSqlDbType(spp2.type);
-                    p.Size = spp2.length;
-                    p.Value = kv.Value;
-                    p.Direction = ParameterDirection.Input;
-                    res.Add(p);
-                }
-            }
         }
         
         // 绑定返回值
@@ -388,7 +394,12 @@ public class ParameterFactory
 
         return res.ToArray();
     }
-    
+
+    #endregion
+
+
+
+
 
 
 

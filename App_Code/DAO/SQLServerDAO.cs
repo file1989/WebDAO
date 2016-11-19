@@ -1,50 +1,26 @@
-﻿using System;
+﻿/*
+ * SQLServer 数据库访问对象帮助处理类
+ * 
+ * 作者：lzp
+ * 日期：2016.11.19
+ * 版本：v1.0
+ */
+using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Web;
 using System.Configuration;
 using System.Text.RegularExpressions;
 using System.Data;
 using System.Data.SqlClient;
-using System.Collections;
+using System.Xml;
 /// <summary>
-/// SQLServerDAO 的摘要说明
+/// SQLServer 数据库访问对象帮助处理类
 /// </summary>
 public class SQLServerDAO
 {
     /// <summary>
     /// 获取配置文件web.config的数据库连接字符串
     /// </summary>
-    private static string ConnectionString = ConfigurationManager.ConnectionStrings["db"].ConnectionString;
-    /// <summary>
-    /// 存储过程可向执行调用的过程或应用程序返回一个整数值。
-    /// </summary>
-    /// <param name="cmd">数据库执行命令</param>
-    /// <returns></returns>
-    public static Int32? GetReturnValue(SqlCommand cmd)
-    {
-
-        if (CommandType.StoredProcedure == cmd.CommandType)
-            return (Int32)cmd.Parameters["ReturnValue"].Value;
-        else return null;
-    }
-
-    /// <summary>
-    /// 获取存储过程的Output参数值
-    /// </summary>
-    /// <param name="cmd">数据库执行命令</param>
-    /// <returns></returns>
-    public static Dictionary<string, object> GetOutParameters(SqlCommand cmd)
-    {
-        Dictionary<string, object> p = new Dictionary<string, object>();
-        foreach (SqlParameter sp in cmd.Parameters)
-        {
-            p.Add(sp.ParameterName, sp.Value);
-        }
-        if (0 == p.Count) { return null; }
-        else { return p; }
-    }
-
+    private static string ConnectionString = ConfigurationManager.ConnectionStrings["SQLServerDB"].ConnectionString;
     /// <summary>
     /// 建立数据库连接，并打开连接。
     /// </summary>
@@ -56,420 +32,565 @@ public class SQLServerDAO
         return conn;
     }
     /// <summary>
-    /// 创建数据库命令
+    /// 获取数据库命令
     /// </summary>
-    /// <param name="sql"></param>
-    /// <param name="parameter"></param>
-    /// <param name="commandType"></param>
+    /// <param name="connection">数据库连接对象【已打开】</param>
+    /// <param name="sql">SQL语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="commandType">命令类型</param>
+    /// <returns></returns>
+    public static SqlCommand GetSqlCommand(SqlConnection connection, string sql, object parameter, CommandType commandType)
+    {
+        try
+        {
+            if (connection.State == ConnectionState.Broken)
+            {
+                connection.Close();
+                connection.Open();
+            }
+            else if (connection.State == ConnectionState.Closed)
+            {
+                connection.Open();
+            }
+            using (SqlCommand cmd = new SqlCommand(sql, connection))
+            {
+                cmd.CommandType = commandType;
+                cmd.CommandTimeout = 60;
+                cmd.Parameters.Clear();
+                if (parameter == null)
+                {
+                    return cmd;
+                }
+                else if (parameter is Dictionary<string, object>)
+                {
+                    Dictionary<string, object> _parameter = (Dictionary<string, object>)parameter;
+
+                    #region SQL语句的参数处理
+
+                    if (CommandType.Text == commandType)
+                    {
+                        /*
+                         * SQL语句的参数处理。
+                         * 支持参数带不带‘@’都行。
+                         */
+                        MatchCollection ms = Regex.Matches(sql, @"@\w+");
+                        if (ms.Count > 0)
+                        {
+                            foreach (Match m in ms)
+                            {
+                                string key = m.Value;
+                                string key2 = m.Value.Substring(1);//去除 @
+                                Object value;
+                                if (_parameter.ContainsKey(key2) || _parameter.ContainsKey(key))
+                                {
+                                    value = _parameter.ContainsKey(key2) ? _parameter[key2] : _parameter[key];
+                                }
+                                else
+                                {
+                                    value = DBNull.Value;
+                                }
+                                cmd.Parameters.Add(new SqlParameter(key, value));
+                            }
+
+                        }
+                        cmd.CommandText = sql;
+                    }
+                    #endregion
+
+                    #region 存储过程的参数处理
+
+                    else if (CommandType.StoredProcedure == commandType)
+                    {
+                        /*
+                         * 存储过程的参数处理。
+                         */
+                        cmd.Parameters.AddRange(ParameterFactory.GetSQLServerParameters(sql, _parameter));
+
+                    }
+                    #endregion
+
+                }
+                else if (parameter is SqlParameter[])
+                {
+                    cmd.Parameters.AddRange((SqlParameter[])parameter);
+                }
+                else
+                {
+                    throw new Exception("不支持的参数类型。");
+                }
+                return cmd;
+            }
+        }
+        catch (Exception ex) {
+            throw ex;
+        }
+
+    }
+    /// <summary>
+    /// 获取数据库命令
+    /// </summary>
+    /// <param name="sql">语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="commandType">命令类型</param>
     /// <returns></returns>
     public static SqlCommand GetSqlCommand(string sql, object parameter, CommandType commandType)
     {
-        using (SqlCommand cmd = new SqlCommand(sql, GetConnection()))
+        try
         {
-            cmd.CommandType = commandType;
-            cmd.CommandTimeout = 60;
-            cmd.Parameters.Clear();
-            if (parameter is Dictionary<string, object>)
+            return GetSqlCommand(GetConnection(), sql, parameter, commandType);
+        }
+        catch(Exception ex) {
+            throw ex;
+        }
+    }
+    ///// <summary>
+    ///// 读取返回值。包括存储过程返回值和输出参数值
+    ///// </summary>
+    ///// <typeparam name="T">泛型类型</typeparam>
+    ///// <param name="ReturnData">数据库执行返回值</param>
+    ///// <param name="cmd">已执行的数据库命令</param>
+    ///// <returns></returns>
+    //public static ReturnData<T> GetReturnData<T>(ReturnData<T> ReturnData, SqlCommand cmd)
+    //{
+    //    /*读取存储过程返回值和输出参数值*/
+    //    foreach (SqlParameter p in cmd.Parameters)
+    //    {
+    //        if (p.Direction == ParameterDirection.Output)
+    //        {
+    //            ReturnData.OutParameters.Add(p.ParameterName, p.Value);
+    //        }
+    //        else if (p.Direction == ParameterDirection.ReturnValue)
+    //        {
+    //            ReturnData.ReturnValue = (int?)p.Value;
+    //        }
+    //    }
+    //    return ReturnData;
+    //}
+
+    /// <summary>
+    /// 读取返回值。包括存储过程返回值和输出参数值
+    /// </summary>
+    /// <typeparam name="T">泛型类型</typeparam>
+    /// <param name="Data">泛型类型对象</param>
+    /// <param name="cmd">已执行的数据库命令</param>
+    /// <returns></returns>
+    public static ReturnData<T> GetReturnData<T>(T Data, SqlCommand cmd)
+    {
+        ReturnData<T> rd = new ReturnData<T>();
+        rd.Data = Data;
+        /*读取存储过程返回值和输出参数值*/
+        foreach (SqlParameter p in cmd.Parameters)
+        {
+            if (p.Direction == ParameterDirection.Output)
             {
-                Dictionary<string, object> _parameter = (Dictionary<string, object>)parameter;
-
-                #region SQL语句的参数处理
-
-                if (CommandType.Text == commandType)
-                { //SQL语句的参数处理。
-
-                    MatchCollection ms = Regex.Matches(sql, @"@\w+");
-                    if (ms.Count > 0)
-                    {
-                        foreach (Match m in ms)
-                        {
-                            string key = m.Value;
-                            string key2 = m.Value.Substring(1);//去除 @
-                            Object value;
-                            if (_parameter.ContainsKey(key2) || _parameter.ContainsKey(key))
-                            {
-                                value = _parameter.ContainsKey(key2) ? _parameter[key2] : _parameter[key];
-                            }
-                            else
-                            {
-                                value = DBNull.Value;
-                            }
-                            cmd.Parameters.Add(new SqlParameter(key, value));
-                        }
-
-                    }
-                    cmd.CommandText = sql;
-                }
-                #endregion
-
-                #region 存储过程的参数处理
-
-                else if (CommandType.StoredProcedure == commandType)
-                {//存储过程的参数处理。
-
-                    List<Syscolumns> cols = CacheHelper.getStoredProcedureParameters(sql);
-                    if (cols == null)
-                    {
-                        throw new Exception("找不到存储过程 " + sql);
-                    }
-
-                    // 绑定input参数，并赋值
-                    if (parameter != null)
-                    {
-                        foreach (KeyValuePair<string, object> kv in _parameter)
-                        {
-                            Syscolumns col = CacheHelper.getColumn(sql, "P", "@" + kv.Key);
-                            if (col != null)
-                            {
-                                cmd.Parameters.Add(col.name, GetSqlDbType(col.type), col.length).Value = kv.Value;
-                                cols.Remove(col);
-                            }
-                        }
-
-                    }
-
-                    //处理未传参数的参数
-                    foreach (Syscolumns col in cols)
-                    {
-                        if (col.isoutparam)
-                        {
-                            // 绑定output参数，并赋值
-                            cmd.Parameters.Add(col.name, GetSqlDbType(col.type), col.length).Direction = ParameterDirection.Output;
-                        }
-                        else
-                        {
-                            //处理未传参数的参数
-                            cmd.Parameters.Add(col.name, GetSqlDbType(col.type), col.length).Value = DBNull.Value;
-                        }
-                    }
-
-                    // 绑定返回值
-                    cmd.Parameters.Add("ReturnValue", SqlDbType.Variant).Direction = ParameterDirection.ReturnValue;
-
-                }
-                #endregion
-
+                rd.OutParameters.Add(p.ParameterName, p.Value);
             }
-            else if (parameter is SqlParameter[]) {
-                cmd.Parameters.AddRange((SqlParameter[])parameter);
+            else if (p.Direction == ParameterDirection.ReturnValue)
+            {
+                rd.ReturnValue = (int?)p.Value;
+            }
+        }
+        return rd;
+    }
+
+    #region 执行 SqlCommand 的ExecuteNonQuery、ExecuteReader、ExecuteScalar、ExecuteXmlReader方法
+    
+    /// <summary>
+    /// 执行SQL语句或存储过程，返回受影响的行数
+    /// </summary>
+    /// <param name="sql">SQL语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">命令类型</param>
+    /// <param name="IsUsedTransaction">是否使用事务</param>
+    /// <returns></returns>
+    public static ReturnData<int> ExecuteNonQuery(string sql, object parameter, CommandType cmdType, bool IsUsedTransaction)
+    {
+        SqlCommand cmd=GetSqlCommand(sql, parameter, cmdType);
+        try
+        {
+            if (IsUsedTransaction == true)
+            {
+                cmd.Connection.BeginTransaction();
+                try
+                {
+                    int r = cmd.ExecuteNonQuery();
+                    cmd.Transaction.Commit();
+                    return GetReturnData<int>(r, cmd);
+                }
+                catch (Exception ex)
+                {
+                    cmd.Transaction.Rollback();
+                    throw ex;
+                }
+                
             }
             else
             {
-                throw new Exception("不支持的参数类型。");
+                return GetReturnData<int>(cmd.ExecuteNonQuery(), cmd);
             }
-
-            return cmd;
         }
-
-    }
-
-    /// <summary>
-    /// 返回SqlDbType类型
-    /// </summary>
-    /// <param name="TypeName">类型名</param>
-    /// <returns></returns>
-    private static SqlDbType GetSqlDbType(String TypeName)
-    {
-        switch (TypeName)
+        catch (Exception ex)
         {
-            case "image":
-                return SqlDbType.Image;
-            case "text":
-                return SqlDbType.Text;
-            case "uniqueidentifier":
-                return SqlDbType.UniqueIdentifier;
-            case "tinyint":
-                return SqlDbType.TinyInt;
-            case "smallint":
-                return SqlDbType.SmallInt;
-            case "int":
-                return SqlDbType.Int;
-            case "smalldatetime":
-                return SqlDbType.SmallDateTime;
-            case "real":
-                return SqlDbType.Real;
-            case "money":
-                return SqlDbType.Money;
-            case "datetime":
-                return SqlDbType.DateTime;
-            case "float":
-                return SqlDbType.Float;
-            case "sql_variant":
-                return SqlDbType.Variant;
-            case "ntext":
-                return SqlDbType.NText;
-            case "bit":
-                return SqlDbType.Bit;
-            case "decimal":
-                return SqlDbType.Decimal;
-            case "numeric":
-                return SqlDbType.Decimal;
-            case "smallmoney":
-                return SqlDbType.SmallMoney;
-            case "bigint":
-                return SqlDbType.BigInt;
-            case "varbinary":
-                return SqlDbType.VarBinary;
-            case "varchar":
-                return SqlDbType.VarChar;
-            case "binary":
-                return SqlDbType.Binary;
-            case "char":
-                return SqlDbType.Char;
-            case "timestamp":
-                return SqlDbType.Timestamp;
-            case "nvarchar":
-                return SqlDbType.NVarChar;
-            case "nchar":
-                return SqlDbType.NChar;
-            case "xml":
-                return SqlDbType.Xml;
-            default:
-                return SqlDbType.Variant;
+            throw ex;
+        }
+        finally {
+            cmd.Connection.Close();
+            cmd.Dispose();
         }
     }
-
-    #region 访问数据库
-
+    /// <summary>
+    /// 执行SQL语句或存储过程，返回受影响的行数
+    /// </summary>
+    /// <param name="sql">SQL语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">命令类型</param>
+    public static ReturnData<int> ExecuteNonQuery(string sql, object parameter, CommandType cmdType)
+    {
+        return ExecuteNonQuery(sql,parameter,cmdType,false);
+    }
     /// <summary>
     /// 执行SQL语句或存储过程
     /// </summary>
     /// <param name="sql">SQL语句或存储过程名称</param>
-    /// <param name="parameter">参数</param>
-    /// <param name="cmdType">执行类型</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">命令类型</param>
+    /// <param name="IsUsedTransaction">是否使用事务</param>
     /// <returns></returns>
-    public static DataTable ExecuteDataTable(string sql, Dictionary<string, object> parameter, CommandType cmdType)
+    public static ReturnData<SqlDataReader> ExecuteReader(string sql, object parameter, CommandType cmdType, bool IsUsedTransaction)
     {
-        DataTable dt = new DataTable();
+
+        SqlCommand cmd = GetSqlCommand(sql, parameter, cmdType);
         try
         {
-            SqlDataAdapter sda = new SqlDataAdapter(GetSqlCommand(sql, parameter, cmdType));
-            sda.Fill(dt);
-            sda.Dispose();
-            return dt;
+            if (true == IsUsedTransaction)
+            {
+                cmd.Connection.BeginTransaction();
+                try
+                {
+                    SqlDataReader sdr = cmd.ExecuteReader();
+                    cmd.Transaction.Commit();
+                    return GetReturnData<SqlDataReader>(sdr,cmd);
+                }
+                catch (Exception ex)
+                {
+                    cmd.Transaction.Rollback();
+                    throw ex;
+                }
+                
+            }
+            else
+            {
+                return GetReturnData<SqlDataReader>(cmd.ExecuteReader(), cmd);
+            }
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-            throw new Exception(e.Message);
+            throw ex;
+        }
+        finally {
+            cmd.Connection.Close();
+            cmd.Dispose();
+        }
+    }
+    /// <summary>
+    /// 执行SQL语句或存储过程
+    /// </summary>
+    /// <param name="sql">SQL语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">命令类型</param>
+    /// <returns></returns>
+    public static ReturnData<SqlDataReader> ExecuteReader(string sql, object parameter, CommandType cmdType)
+    {
+        return ExecuteReader(sql, parameter, cmdType, false);
+    }
+    /// <summary>
+    /// 执行SQL语句或存储过程，返回查询所返回的结果集中的第一行第一列
+    /// </summary>
+    /// <param name="sql">SQL语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">命令类型</param>
+    /// <param name="IsUsedTransaction">是否使用事务</param>
+    /// <returns></returns>
+    public static ReturnData<object> ExecuteScalar(string sql, object parameter, CommandType cmdType, bool IsUsedTransaction)
+    {
+        SqlCommand cmd = GetSqlCommand(sql, parameter, cmdType);
+        try
+        {
+            if (true == IsUsedTransaction)
+            {
+                cmd.Connection.BeginTransaction();
+                try
+                {
+                    object r = cmd.ExecuteScalar();
+                    cmd.Transaction.Commit();
+                    return GetReturnData<object>(r, cmd);
+                }
+                catch (Exception ex)
+                {
+                    cmd.Transaction.Rollback();
+                    throw ex;
+                }
+                
+            }
+            else
+            {
+                return GetReturnData<object>(cmd.ExecuteScalar(),cmd);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw ex;
         }
         finally
         {
-            dt.Dispose();
+            cmd.Connection.Close();
+            cmd.Dispose();
         }
     }
+    /// <summary>
+    /// 执行SQL语句或存储过程，返回查询所返回的结果集中的第一行第一列
+    /// </summary>
+    /// <param name="sql">SQL语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">命令类型</param>
+    /// <returns></returns>
+    public static ReturnData<object> ExecuteScalar(string sql, object parameter, CommandType cmdType)
+    {
+        return ExecuteScalar(sql, parameter, cmdType, false);
+    }
+    /// <summary>
+    /// 执行SQL语句或存储过程
+    /// </summary>
+    /// <param name="sql">SQL语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">命令类型</param>
+    /// <param name="IsUsedTransaction">是否使用事务</param>
+    /// <returns></returns>
+    public static ReturnData<XmlReader> ExecuteXmlReader(string sql, object parameter, CommandType cmdType, bool IsUsedTransaction)
+    {
+        SqlCommand cmd = GetSqlCommand(sql, parameter, cmdType);
+        try
+        {
+            if (true == IsUsedTransaction)
+            {
+                cmd.Connection.BeginTransaction();
+                try
+                {
+                    System.Xml.XmlReader xr = cmd.ExecuteXmlReader();
+                    cmd.Transaction.Commit();
+                    return GetReturnData<XmlReader>(xr, cmd);
+                }
+                catch (Exception ex)
+                {
+                    cmd.Transaction.Rollback();
+                    throw ex;
+                }
+
+            }
+            else
+            {
+                return GetReturnData<XmlReader>(cmd.ExecuteXmlReader(), cmd);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw ex;
+        }
+        finally
+        {
+            cmd.Connection.Close();
+            cmd.Dispose();
+        }
+    }
+    /// <summary>
+    /// 执行SQL语句或存储过程
+    /// </summary>
+    /// <param name="sql">SQL语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">命令类型</param>
+    /// <returns></returns>
+    public static ReturnData<XmlReader> ExecuteXmlReader(string sql, object parameter, CommandType cmdType)
+    {
+        return ExecuteXmlReader(sql, parameter, cmdType, false);
+    }
+
+    #endregion
+
 
     /// <summary>
     /// 执行SQL语句或存储过程
     /// </summary>
     /// <param name="sql">SQL语句或存储过程名称</param>
-    /// <param name="parameter">参数</param>
-    /// <param name="cmdType">命令类型</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">执行类型</param>
+    /// <param name="IsUsedTransaction">是否使用事务</param>
     /// <returns></returns>
-    public static DataSet ExecuteDataSet(string sql, Dictionary<string, object> parameter, CommandType cmdType)
+    public static ReturnData<DataTable> ExecuteDataTable(string sql, object parameter, CommandType cmdType, bool IsUsedTransaction)
     {
-        DataSet ds = new DataSet();
+        SqlCommand cmd = GetSqlCommand(sql, parameter, cmdType);
+        SqlDataAdapter sda = new SqlDataAdapter(cmd);
         try
         {
-            SqlDataAdapter sda = new SqlDataAdapter(GetSqlCommand(sql, parameter, cmdType));
-            sda.Fill(ds);
-            sda.Dispose();
-            return ds;
+            using (DataTable dt = new DataTable())
+            {
+                if (true == IsUsedTransaction)
+                {
+                    SqlTransaction tran = cmd.Connection.BeginTransaction();
+                    sda.InsertCommand.Transaction = tran;
+                    sda.UpdateCommand.Transaction = tran;
+                    sda.DeleteCommand.Transaction = tran;
+                    sda.SelectCommand.Transaction = tran;
+                    try
+                    {
+                        sda.Fill(dt);
+                        tran.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        tran.Rollback();
+                        throw new Exception(ex.Message);
+                    }
+                    finally
+                    {
+                        tran.Dispose();
+                    }
+                }
+                else
+                {
+                    sda.Fill(dt);
+                }
+
+                return GetReturnData<DataTable>(dt, cmd);
+            }
+
         }
-        catch (Exception ex) { throw new Exception(ex.Message); }
-        finally { ds.Dispose(); }
-    }
-
-    /// <summary>
-    /// 执行存储过程
-    /// </summary>
-    /// <param name="StoredProcedureName">存储过程名称</param>
-    /// <param name="parameter">参数</param>
-    /// <param name="ReturnData">out参数</param>
-    /// <returns></returns>
-    public static List<DataTable> ExecuteStoredProcedure(string StoredProcedureName, Dictionary<string, object> parameter, out SqlReturnData ReturnData)
-    {
-
-        try
+        catch (Exception e)
         {
-            DataSet ds = new DataSet();
-            List<DataTable> dataTables = new List<DataTable>();
-            SqlCommand cmd = GetSqlCommand(StoredProcedureName, parameter, CommandType.StoredProcedure);
-            SqlDataAdapter sda = new SqlDataAdapter(cmd);
-            sda.Fill(ds);
+            throw e;
+        }
+        finally
+        {
             sda.Dispose();
-            SqlReturnData srd = new SqlReturnData();
-            srd.ReturnValue = GetReturnValue(cmd);
-            srd.OutParameters = GetOutParameters(cmd);
-            ReturnData = srd;
+            cmd.Connection.Close();
             cmd.Dispose();
-
-            foreach (DataTable dt in ds.Tables)
-            {
-                dataTables.Add(dt);
-            }
-            ds.Dispose();
-            return dataTables;
         }
-        catch (Exception ex) { throw new Exception(ex.Message); }
-
     }
     /// <summary>
-    /// 执行存储过程
+    /// 执行SQL语句或存储过程
     /// </summary>
-    /// <param name="StoredProcedureName">存储过程名称</param>
-    /// <param name="parameter">参数</param>
-    /// <returns></returns>
-    public static List<DataTable> ExecuteStoredProcedure(string StoredProcedureName, Dictionary<string, object> parameter)
+    /// <param name="sql">SQL语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">执行类型</param>
+    public static ReturnData<DataTable> ExecuteDataTable(string sql, object parameter, CommandType cmdType)
     {
-        DataSet ds = new DataSet();
+        return ExecuteDataTable(sql, parameter, cmdType, false);
+    }
+    /// <summary>
+    /// 执行SQL语句或存储过程
+    /// </summary>
+    /// <param name="sql">SQL语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">执行类型</param>
+    /// <param name="IsUsedTransaction">是否使用事务</param>
+    /// <returns></returns>
+    public static ReturnData<DataSet> ExecuteDataSet(string sql, object parameter, CommandType cmdType, bool IsUsedTransaction)
+    {
+
+        SqlCommand cmd = GetSqlCommand(sql, parameter, cmdType);
+        SqlDataAdapter sda = new SqlDataAdapter(cmd);
         try
         {
-            List<DataTable> dataTables = new List<DataTable>();
-            SqlDataAdapter sda = new SqlDataAdapter(GetSqlCommand(StoredProcedureName, parameter, CommandType.StoredProcedure));
-            sda.Fill(ds);
+            using (DataSet ds = new DataSet())
+            {
+                if (true == IsUsedTransaction)
+                {
+                    SqlTransaction tran = cmd.Connection.BeginTransaction();
+                    sda.InsertCommand.Transaction = tran;
+                    sda.UpdateCommand.Transaction = tran;
+                    sda.DeleteCommand.Transaction = tran;
+                    sda.SelectCommand.Transaction = tran;
+                    try
+                    {
+                        sda.Fill(ds);
+                        tran.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        tran.Rollback();
+                        throw new Exception(ex.Message);
+                    }
+                    finally
+                    {
+                        tran.Dispose();
+                    }
+                }
+                else
+                {
+                    sda.Fill(ds);
+                }
+                return GetReturnData<DataSet>(ds, cmd);
+            }
+
+        }
+        catch (Exception e)
+        {
+            throw e;
+        }
+        finally
+        {
             sda.Dispose();
-
-            foreach (DataTable dt in ds.Tables)
-            {
-                dataTables.Add(dt);
-            }
-            return dataTables;
+            cmd.Connection.Close();
+            cmd.Dispose();
         }
-        catch (Exception ex) { throw new Exception(ex.Message); }
-        finally { ds.Dispose(); }
     }
-
     /// <summary>
-    /// 执行查询，返回查询所返回的结果集中的第一行第一列
+    /// 执行SQL语句或存储过程
     /// </summary>
-    /// <param name="sql">存储过程名称</param>
-    /// <param name="parameter">参数</param>
-    /// <param name="cmdType"></param>
+    /// <param name="sql">SQL语句或存储过程名称</param>
+    /// <param name="parameter">参数。类型为Dictionary字典（参数名带不带@都可以）或 SqlParameter[] </param>
+    /// <param name="cmdType">执行类型</param>
     /// <returns></returns>
-    public static Object ExecuteScalar(string sql, Dictionary<string, object> parameter, CommandType cmdType)
+    public static ReturnData<DataSet> ExecuteDataSet(string sql, object parameter, CommandType cmdType)
     {
-        return GetSqlCommand(sql, parameter, cmdType).ExecuteScalar();
-    }
-
-    /// <summary>
-    /// 执行SQL语句，返回受影响的行数
-    /// </summary>
-    /// <param name="sql">SQL语句</param>
-    /// <param name="parameter">参数</param>
-    /// <returns></returns>
-    public static int ExecuteNonQuery(string sql, Dictionary<string, object> parameter)
-    {
-        return GetSqlCommand(sql, parameter, CommandType.Text).ExecuteNonQuery();
+        return ExecuteDataSet(sql, parameter, cmdType, false);
     }
 
 
-    #endregion
-
-    #region 数据转换
-
-    /// <summary>  
-    /// 把DataTable转成 DictionaryList集合, 存每一行；集合中放的是键值对字典,存每一列 。
-    /// </summary> 
-    /// <param name="dt">数据表</param> 
-    /// <returns></returns> 
-    public static List<Dictionary<string, object>> ToDictionaryList(DataTable dt)
+    public static ReturnData<T> ExecuteStoredProcedure<T>(string sql, object parameter,bool IsUsedTransaction)
     {
-        List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
-
-        foreach (DataRow dr in dt.Rows)
+        try
         {
-            Dictionary<string, object> dic = new Dictionary<string, object>();
-            foreach (DataColumn dc in dt.Columns)
+            
+            if (typeof(T) == typeof(DataSet))
             {
-                dic.Add(dc.ColumnName, dr[dc.ColumnName]);
-            }
-            list.Add(dic);
-        }
-        return list;
-    }
+                return (ReturnData<T>)Convert.ChangeType(ExecuteDataSet(sql, parameter, CommandType.StoredProcedure, IsUsedTransaction), typeof(ReturnData<T>));
 
-    /// <summary>
-    /// 把DataTable转成数组，首行数据为表的标题行
-    /// </summary>
-    /// <param name="dt">数据表</param>
-    /// <returns></returns>
-    public static ArrayList ToArrayList(DataTable dt)
-    {
-        ArrayList als = new ArrayList();
-        ArrayList h = new ArrayList();
-        //表标题行
-        foreach (DataColumn dc in dt.Columns)
-        {
-            h.Add(dc.ColumnName);
-        }
-        als.Add(h);
-        //表数据
-        foreach (DataRow dr in dt.Rows)
-        {
-            ArrayList al = new ArrayList();
-            foreach (DataColumn dc in dt.Columns)
+            }
+            else if (typeof(T) == typeof(DataTable))
             {
-                al.Add(dr[dc.ColumnName]);
-            }
-            als.Add(al);
-        }
-        return als;
-    }
+                return (ReturnData<T>)Convert.ChangeType(ExecuteDataTable(sql, parameter, CommandType.StoredProcedure, IsUsedTransaction), typeof(ReturnData<T>));
 
-    /// <summary>
-    /// DataTable转换为Dictionary
-    /// </summary>
-    /// <param name="dt">DataTable数据</param>
-    /// <returns></returns>
-    public static Dictionary<string, Dictionary<string, object>> ToDictionary(DataTable dt)
-    {
-        Dictionary<string, Dictionary<string, object>> dic = new Dictionary<string, Dictionary<string, object>>();
-        for (Int32 i = 0; i < dt.Rows.Count; i++)
-        {
-            Dictionary<string, object> dic2 = new Dictionary<string, object>();
-            foreach (DataColumn dc in dt.Columns)
+            }
+            else if (typeof(T) == typeof(SqlDataReader)) {
+                return (ReturnData<T>)Convert.ChangeType(ExecuteReader(sql, parameter, CommandType.StoredProcedure, IsUsedTransaction), typeof(ReturnData<T>));
+
+            }
+            else if (typeof(T) == typeof(XmlReader)) {
+                return (ReturnData<T>)Convert.ChangeType(ExecuteXmlReader(sql, parameter, CommandType.StoredProcedure, IsUsedTransaction), typeof(ReturnData<T>));
+
+            }
+            else
             {
-                dic2.Add(dc.ColumnName, dt.Rows[i][dc.ColumnName]);
+                throw new Exception("方法 ExecuteStoredProcedure<T> 的泛型只能为DataSet、DataTable、SqlDataReader 或 XmlReader。");
             }
-            dic.Add(i.ToString(), dic2);
         }
-        return dic;
-    }
-
-    /// <summary> 
-    /// 数据集转键值对数组字典 
-    /// </summary> 
-    /// <param name="dataSet">数据集</param> 
-    /// <returns>键值对数组字典</returns> 
-    public static Dictionary<string, List<Dictionary<string, object>>> ToDictionary(DataSet ds)
-    {
-        Dictionary<string, List<Dictionary<string, object>>> result = new Dictionary<string, List<Dictionary<string, object>>>();
-        foreach (DataTable dt in ds.Tables)
-        {
-            result.Add(dt.TableName, ToDictionaryList(dt));
+        catch (Exception e) {
+            throw e;
         }
-        return result;
     }
 
 
-    #endregion
 
 
 }
-#region 存储过程的返回值和Output参数信息类
-/// <summary>
-/// 存储过程的返回值和Output参数信息类
-/// </summary>
-public class SqlReturnData
-{
-    public SqlReturnData() { }
-    /// <summary>
-    /// 设置或获取存储过程可向执行调用的过程或应用程序返回的一个整数值。
-    /// </summary>
-    public Int32? ReturnValue { set { ReturnValue = value; } get { return ReturnValue; } }
-    /// <summary>
-    /// 设置或获取存储过程的Output参数值 
-    /// </summary>
-    public Dictionary<string, object> OutParameters { set { OutParameters = value; } get { return OutParameters; } }
-}
-#endregion
+
