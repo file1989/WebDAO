@@ -10,6 +10,8 @@ using System.Web;
 using System.IO;
 using System.Data;
 using System.Data.SqlClient;
+using MySql.Data;
+using MySql.Data.MySqlClient;
 
 /// <summary>
 /// 数据库执行返回值。包括存储过程的返回值和Output参数信息。
@@ -218,41 +220,48 @@ public class ParameterFactory
     #region SQLServerParameter
 
     /// <summary>
-    /// 从数据库获取存储过程参数
+    /// 获取存储过程参数
     /// </summary>
     /// <param name="ProcedureName"></param>
     /// <returns></returns>
-    private static Dictionary<string, StoredProcedureParameter> GetSQLServerParameter(string ProcedureName)
+    private static StoredProcedureParameter GetSQLServerParameter(string ProcedureName, string ParameterName)
     {
         try
         {
-            string sql = @"SELECT A.name as procname, B.[name], C.[name] AS [type], B.length, B.isoutparam, B.isnullable
+            if (Get(ProcedureName, ParameterName) != null)
+            {   
+                /*
+                 * 取不到参数，则刷新参数池。
+                 */
+                string sql = @"SELECT A.name as procname, B.[name], C.[name] AS [type], B.length, B.isoutparam, B.isnullable
                     FROM sysobjects AS A INNER JOIN
                     syscolumns AS B ON A.id = B.id AND A.xtype = 'P' INNER JOIN
                     systypes C ON B.xtype = C.xtype AND C.[name] <> 'sysname'
                     where A.name='" + ProcedureName + "'ORDER BY A.name, B.isoutparam";
 
-            using (DataTable dt = SQLServerDAO.ExecuteDataTable(sql, null, CommandType.Text).Data)
-            {
-                Dictionary<string, StoredProcedureParameter> ParameterDictionary = new Dictionary<string, StoredProcedureParameter>();
-                foreach (DataRow dr in dt.Rows)
+                using (DataTable dt = SQLServerDAO.ExecuteDataTable(sql, null, CommandType.Text).Data)
                 {
-                    StoredProcedureParameter spp = new StoredProcedureParameter();
-                    spp.name = dr["name"].ToString();
-                    spp.type = dr["type"].ToString();
-                    spp.length = Convert.ToInt32(dr["length"]);
-                    spp.isoutparam = dr["isoutparam"].ToString() == "1";
-                    spp.isnullable = dr["isnullable"].ToString() == "1";
-                    ParameterDictionary.Add(spp.name, spp);
+                    Dictionary<string, StoredProcedureParameter> ParameterDictionary = new Dictionary<string, StoredProcedureParameter>();
+                    foreach (DataRow dr in dt.Rows)
+                    {
+                        StoredProcedureParameter spp = new StoredProcedureParameter();
+                        spp.name = dr["name"].ToString();
+                        spp.type = dr["type"].ToString();
+                        spp.length = Convert.ToInt32(dr["length"]);
+                        spp.isoutparam = dr["isoutparam"].ToString() == "1";
+                        spp.isnullable = dr["isnullable"].ToString() == "1";
+                        ParameterDictionary.Add(spp.name, spp);
 
+                    }
+                    if (ParameterDictionary.Count > 0)
+                    {
+                        Set(ProcedureName, ParameterDictionary);
+                        return Get(ProcedureName, ParameterName);
+                    }
+                    else { return null; }
                 }
-                if (ParameterDictionary.Count > 0)
-                {
-                    Set(ProcedureName, ParameterDictionary);
-                    return ParameterDictionary;
-                }
-                else { return null; }
             }
+            else { return Get(ProcedureName, ParameterName); }
         }
         catch { return null; }
 
@@ -323,7 +332,7 @@ public class ParameterFactory
         }
     }
     /// <summary>
-    /// 从数据库获取存储过程参数
+    /// 获取存储过程参数
     /// </summary>
     /// <param name="ProcedureName"></param>
     /// <param name="parameter"></param>
@@ -336,17 +345,10 @@ public class ParameterFactory
         // 绑定input参数
         foreach (KeyValuePair<string, object> kv in parameter)
         {
-            string key = (kv.Key.StartsWith("@") ? kv.Key : "@" + kv.Key);//支持参数名带不带 @ 。
-            StoredProcedureParameter spp2 = Get(ProcedureName, key);
-            /*
-             *参数值为空，刷新参数池后，再赋值。
-             */
+            string key = (kv.Key.StartsWith("@") ? kv.Key : "@" + kv.Key);//支持参数名不带 @ 。
+            StoredProcedureParameter spp2 = GetSQLServerParameter(ProcedureName, key);
             if (spp2 == null) {
-                Dictionary<string, StoredProcedureParameter> _Parameters = GetSQLServerParameter(ProcedureName);
-                if (_Parameters.ContainsKey(key) && _Parameters[key]!=null)
-                {
-                    spp2=_Parameters[key];
-                }else{ continue; }
+                continue; 
             }
 
             SqlParameter p = new SqlParameter();
@@ -397,7 +399,69 @@ public class ParameterFactory
 
     #endregion
 
+    #region MySQLParameter
 
+    /// <summary>
+    /// 获取存储过程参数
+    /// </summary>
+    /// <param name="ProcedureName"></param>
+    /// <param name="ParameterName"></param>
+    /// <returns></returns>
+    public static StoredProcedureParameter GetMySqlParameter(string ProcedureName, string ParameterName)
+    {
+        try
+        {
+            if (Get(ProcedureName, ParameterName) != null)
+            {
+                /*
+                 * 取不到参数，则刷新参数池。
+                 */
+                string sql = @"SELECT A.name as procname, B.[name], C.[name] AS [type], B.length, B.isoutparam, B.isnullable
+                    FROM sysobjects AS A INNER JOIN
+                    syscolumns AS B ON A.id = B.id AND A.xtype = 'P' INNER JOIN
+                    systypes C ON B.xtype = C.xtype AND C.[name] <> 'sysname'
+                    where A.name='" + ProcedureName + "'ORDER BY A.name, B.isoutparam";
+
+                using (DataTable dt = SQLServerDAO.ExecuteDataTable(sql, null, CommandType.Text).Data)
+                {
+                    Dictionary<string, StoredProcedureParameter> ParameterDictionary = new Dictionary<string, StoredProcedureParameter>();
+                    foreach (DataRow dr in dt.Rows)
+                    {
+                        StoredProcedureParameter spp = new StoredProcedureParameter();
+                        spp.name = dr["name"].ToString();
+                        spp.type = dr["type"].ToString();
+                        spp.length = Convert.ToInt32(dr["length"]);
+                        spp.isoutparam = dr["isoutparam"].ToString() == "1";
+                        spp.isnullable = dr["isnullable"].ToString() == "1";
+                        ParameterDictionary.Add(spp.name, spp);
+
+                    }
+                    if (ParameterDictionary.Count > 0)
+                    {
+                        Set(ProcedureName, ParameterDictionary);
+                        return Get(ProcedureName, ParameterName);
+                    }
+                    else { return null; }
+                }
+            }
+            else { return Get(ProcedureName, ParameterName); }
+        }
+        catch { return null; }
+
+    }
+    /// <summary>
+    /// 获取存储过程参数
+    /// </summary>
+    /// <param name="ProcedureName"></param>
+    /// <param name="ParameterName"></param>
+    /// <returns></returns>
+    public static MySqlParameter[] GetMySqlParameters(string ProcedureName,Dictionary<string,object> parameter)
+    {
+        return new MySqlParameter[] { };
+    }
+
+
+    #endregion
 
 
 

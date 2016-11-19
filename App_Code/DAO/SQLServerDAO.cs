@@ -32,6 +32,16 @@ public class SQLServerDAO
         return conn;
     }
     /// <summary>
+    /// 建立数据库连接，并打开连接。
+    /// </summary>
+    /// <returns></returns>
+    public static SqlConnection GetConnection(string ConnectionString)
+    {
+        SqlConnection conn = new SqlConnection(ConnectionString);
+        conn.Open();
+        return conn;
+    }
+    /// <summary>
     /// 获取数据库命令
     /// </summary>
     /// <param name="connection">数据库连接对象【已打开】</param>
