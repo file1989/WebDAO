@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Web;
 using System.Web.Script.Serialization;
+using System.Data;
+using System.Data.SqlClient;
+using System.Text;
 
 /// <summary>
 /// JSON 帮助类
@@ -43,6 +46,106 @@ public class JSON
             throw new Exception("对象转换为JSON字符串出错：" + ex.Message);
         }
     }
+    /// <summary>
+    /// 数据表转JSON
+    /// </summary>
+    /// <param name="dataTable"></param>
+    /// <returns></returns>
+    public static string DataTableToJson(DataTable dataTable)
+    {
+        StringBuilder table = new StringBuilder();
+        foreach (DataRow dr in dataTable.Rows)
+        {
+            StringBuilder row = new StringBuilder();
+            foreach (DataColumn dc in dataTable.Columns)
+            {
+                if (row.Length > 0)
+                {
+                    row.Append(",");
+                }
+                row.AppendFormat("\"{0}\":{1}", dc.ColumnName, GetJsonValue(dr[dc.ColumnName]));
+                
+            }
+            if (table.Length > 0)
+            {
+                table.Append(",");
+            }
+            table.Append("{"+row.ToString()+"}");
+        }
+        return "[" + table.ToString() + "]";
+    }
+    /// <summary>
+    /// 数据表集转JSON
+    /// </summary>
+    /// <param name="dataSet"></param>
+    /// <returns></returns>
+    public static string DataSetToJson(DataSet dataSet)
+    {
+        StringBuilder sb = new StringBuilder();
+        foreach (DataTable dt in dataSet.Tables)
+        {
+            if (sb.Length > 0)
+            {
+                sb.Append(",");
+            }
+            sb.Append(DataTableToJson(dt));
+        }
+        return "[" + sb.ToString() + "]";
+    }
+    
+    public static string SqlDataReaderToJson(SqlDataReader reader){
+        //while (reader.Read()) { 
+        //    reader.
+        //}
+        
+        return "[]";
+    }
+    /// <summary>
+    /// 获取JSON值
+    /// </summary>
+    /// <param name="obj"></param>
+    /// <returns></returns>
+    public static string GetJsonValue(object obj) {
+        if (obj == null||obj is DBNull) {
+            return "null";
+        }
+        else if (obj is bool)
+        {
+            return Convert.ToBoolean(obj) == true ? "true" : "false";
+        }
+        else if (
+                obj is sbyte || obj is short || obj is int || obj is long
+                || obj is byte || obj is ushort || obj is uint || obj is ulong
+                || obj is float || obj is double || obj is decimal)
+        {
+            return obj.ToString();
+        }
+        else if (obj is char || obj is string || obj is StringBuilder)
+        {
+            return "\"" + obj.ToString() + "\"";
+        }
+        else if (obj is DateTime)
+        {
+            return "\"" + Convert.ToDateTime(obj).ToString("yyyy-MM-dd") + "\"";
+        }
+        else if (obj is DataTable)
+        {
+            return DataTableToJson((DataTable)obj);
+        }
+        else if (obj is DataSet)
+        {
+            return DataSetToJson((DataSet)obj);
+        }
+        else if (obj is SqlDataReader) {
+            return SqlDataReaderToJson((SqlDataReader)obj);
+        }
+        else
+        {
+            return ToJSON(obj);
+        }
+
+
+    }
 
     /// <summary>
     /// 输出JSON值
@@ -50,7 +153,15 @@ public class JSON
     /// <param name="data"></param>
     public static void Write(object data)
     {
-        HttpContext.Current.Response.Write(ToJSON(data));
+        string json = string.Empty;
+        if (data is DataTable || data is DataSet || data is SqlDataReader)
+        {
+            json = GetJsonValue(data);
+        }
+        else {
+            json = ToJSON(data);
+        }
+        HttpContext.Current.Response.Write(json);
     }
     /// <summary>
     /// 输出Ajax HandleJSON值
@@ -60,31 +171,15 @@ public class JSON
     /// <param name="data">数据</param>
     public static void Write(bool success, string message, object data)
     {
-        System.Text.StringBuilder sb = new System.Text.StringBuilder("{");
-        sb.AppendFormat("\"success\":{0}", (success == null ? "false" : success.ToString().ToLower()));
-        if (message == null)
-        {
-            sb.Append(",\"message\":null");
-        }
-        else
-        {
-            sb.AppendFormat(",\"message\":\"{0}\"", message);
-        }
-        if (data == null) { sb.Append(",\"data\":null"); }
-        else if (data is DateTime)
-        {
-            sb.AppendFormat(",\"data\":\"{0}\"", ((DateTime)data).ToString("yyyy-MM-dd"));
-        }
-        else
-        {
-            sb.AppendFormat(",\"data\":{0}", ToJSON(data));
-        }
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        sb.Append("{");
+        sb.AppendFormat("\"success\":{0}", GetJsonValue(success));
+        sb.AppendFormat(",\"message\":{0}", GetJsonValue(message));
+        sb.AppendFormat(",\"data\":{0}", GetJsonValue(data));
         sb.Append("}");
         HttpContext.Current.Response.Write(sb.ToString());
     }
-
-
-
+    
 
 
 
