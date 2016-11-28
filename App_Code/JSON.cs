@@ -94,11 +94,29 @@ public class JSON
     }
     
     public static string SqlDataReaderToJson(SqlDataReader reader){
-        //while (reader.Read()) { 
-        //    reader.
-        //}
-        
-        return "[]";
+        System.Text.StringBuilder r = new System.Text.StringBuilder();
+        while (reader.Read())
+        {
+            System.Text.StringBuilder row = new System.Text.StringBuilder();
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                if (row.Length > 0)
+                {
+                    row.Append(",");
+                }
+                row.Append("\"" + reader.GetName(i) + "\":");
+                row.Append(GetJsonValue(reader[i]));
+            }
+
+            if (r.Length > 0)
+            {
+                r.Append(",");
+            }
+            r.Append("{" + row.ToString() + "}");
+
+        }
+        return "[" + r.ToString() + "]";
+
     }
     /// <summary>
     /// 获取JSON值

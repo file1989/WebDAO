@@ -296,4 +296,31 @@ public class Common
             ob.Dispose();
         }
     }
+    /// <summary>
+    /// 判断字符串是否为浮点数或0
+    /// </summary>
+    /// <param name="str"></param>
+    /// <returns></returns>
+    private bool IsFloat(string str)
+    {
+        try
+        {
+            string regextext = @"^(-?\d+)(\.\d+)?$";
+            System.Text.RegularExpressions.Regex regex =
+                new System.Text.RegularExpressions.Regex(regextext, System.Text.RegularExpressions.RegexOptions.None);
+            return regex.IsMatch(str.Trim());
+        }
+        catch { return false; }
+    }
+
+
+
+
+
+
+
+
+
+
+
 }
