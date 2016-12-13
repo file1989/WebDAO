@@ -24,7 +24,7 @@ public static class CacheHelper
                     syscolumns AS B ON A.id = B.id AND A.xtype = '"+xtype+@"' INNER JOIN
                     systypes C ON B.xtype = C.xtype AND C.[name] <> 'sysname'
                     where A.name='"+objectName+"'ORDER BY A.name, B.isoutparam";
-            dt = SQLServerDAO.ExecuteDataTable(sql, null, CommandType.Text);
+            dt = SQLServerDAO.ExecuteDataTable(sql, null, CommandType.Text).Data;
             List<Syscolumns> cols=new List<Syscolumns>();
             for (int n = 0; n < dt.Rows.Count; n++) {
                 Syscolumns syscolumns = new Syscolumns();

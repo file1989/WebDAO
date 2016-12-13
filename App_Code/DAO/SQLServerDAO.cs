@@ -74,7 +74,7 @@ public class SQLServerDAO
                 else if (parameter is Dictionary<string, object>)
                 {
                     Dictionary<string, object> _parameter = (Dictionary<string, object>)parameter;
-
+                    
                     #region SQL语句的参数处理
 
                     if (CommandType.Text == commandType)
@@ -86,6 +86,7 @@ public class SQLServerDAO
                         MatchCollection ms = Regex.Matches(sql, @"@\w+");
                         if (ms.Count > 0)
                         {
+                            Dictionary<string, object> tmp_parameter = new Dictionary<string, object>();
                             foreach (Match m in ms)
                             {
                                 string key = m.Value;
@@ -99,8 +100,17 @@ public class SQLServerDAO
                                 {
                                     value = DBNull.Value;
                                 }
-                                cmd.Parameters.Add(new SqlParameter(key, value));
+
+                                if (!tmp_parameter.ContainsKey(key)) {
+                                    tmp_parameter.Add(key, value);
+                                }
+
                             }
+
+                            foreach (KeyValuePair<string, object> kvp in tmp_parameter) {
+                                cmd.Parameters.Add(new SqlParameter(kvp.Key,kvp.Value));
+                            }
+
 
                         }
                         cmd.CommandText = sql;
