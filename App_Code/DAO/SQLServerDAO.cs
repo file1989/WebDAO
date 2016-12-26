@@ -163,30 +163,6 @@ public class SQLServerDAO
             throw ex;
         }
     }
-    ///// <summary>
-    ///// 读取返回值。包括存储过程返回值和输出参数值
-    ///// </summary>
-    ///// <typeparam name="T">泛型类型</typeparam>
-    ///// <param name="ReturnData">数据库执行返回值</param>
-    ///// <param name="cmd">已执行的数据库命令</param>
-    ///// <returns></returns>
-    //public static ReturnData<T> GetReturnData<T>(ReturnData<T> ReturnData, SqlCommand cmd)
-    //{
-    //    /*读取存储过程返回值和输出参数值*/
-    //    foreach (SqlParameter p in cmd.Parameters)
-    //    {
-    //        if (p.Direction == ParameterDirection.Output)
-    //        {
-    //            ReturnData.OutParameters.Add(p.ParameterName, p.Value);
-    //        }
-    //        else if (p.Direction == ParameterDirection.ReturnValue)
-    //        {
-    //            ReturnData.ReturnValue = (int?)p.Value;
-    //        }
-    //    }
-    //    return ReturnData;
-    //}
-
     /// <summary>
     /// 读取返回值。包括存储过程返回值和输出参数值
     /// </summary>
