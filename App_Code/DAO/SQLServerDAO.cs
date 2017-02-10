@@ -74,7 +74,7 @@ public class SQLServerDAO
                 else if (parameter is Dictionary<string, object>)
                 {
                     Dictionary<string, object> _parameter = (Dictionary<string, object>)parameter;
-
+                    
                     #region SQL语句的参数处理
 
                     if (CommandType.Text == commandType)
@@ -86,6 +86,7 @@ public class SQLServerDAO
                         MatchCollection ms = Regex.Matches(sql, @"@\w+");
                         if (ms.Count > 0)
                         {
+                            Dictionary<string, object> tmp_parameter = new Dictionary<string, object>();
                             foreach (Match m in ms)
                             {
                                 string key = m.Value;
@@ -99,8 +100,17 @@ public class SQLServerDAO
                                 {
                                     value = DBNull.Value;
                                 }
-                                cmd.Parameters.Add(new SqlParameter(key, value));
+
+                                if (!tmp_parameter.ContainsKey(key)) {
+                                    tmp_parameter.Add(key, value);
+                                }
+
                             }
+
+                            foreach (KeyValuePair<string, object> kvp in tmp_parameter) {
+                                cmd.Parameters.Add(new SqlParameter(kvp.Key,kvp.Value));
+                            }
+
 
                         }
                         cmd.CommandText = sql;
@@ -153,30 +163,6 @@ public class SQLServerDAO
             throw ex;
         }
     }
-    ///// <summary>
-    ///// 读取返回值。包括存储过程返回值和输出参数值
-    ///// </summary>
-    ///// <typeparam name="T">泛型类型</typeparam>
-    ///// <param name="ReturnData">数据库执行返回值</param>
-    ///// <param name="cmd">已执行的数据库命令</param>
-    ///// <returns></returns>
-    //public static ReturnData<T> GetReturnData<T>(ReturnData<T> ReturnData, SqlCommand cmd)
-    //{
-    //    /*读取存储过程返回值和输出参数值*/
-    //    foreach (SqlParameter p in cmd.Parameters)
-    //    {
-    //        if (p.Direction == ParameterDirection.Output)
-    //        {
-    //            ReturnData.OutParameters.Add(p.ParameterName, p.Value);
-    //        }
-    //        else if (p.Direction == ParameterDirection.ReturnValue)
-    //        {
-    //            ReturnData.ReturnValue = (int?)p.Value;
-    //        }
-    //    }
-    //    return ReturnData;
-    //}
-
     /// <summary>
     /// 读取返回值。包括存储过程返回值和输出参数值
     /// </summary>
